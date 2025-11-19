@@ -1,0 +1,24 @@
+unsigned long startTime;
+int label = 0;   // 0 = noise, 1 = clap
+int label = 0:  
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+
+  Serial.println("time,mic_value,label"); // CSV header
+
+  startTime = millis();
+}
+
+void loop() {
+  float t = (millis() - startTime) / 1000.0;  // seconds
+  int mic = analogRead(A0);                   // your mic pin
+  Serial.print(t, 3);
+  Serial.print(",");
+  Serial.print(mic);
+  Serial.print(",");
+  Serial.println(label);
+
+  delay(1);   // 1 ms sampling = 1 kHz
+}
+ 
