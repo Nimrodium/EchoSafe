@@ -6,7 +6,7 @@ from collections import deque
 import serial
 import numpy as np
 import tensorflow as tf
-from numpy.fft import rfft # ignore 
+from numpy.fft import rfft
 
 # -----------------------------
 # SETTINGS (defaults, overridable via CLI)
@@ -15,11 +15,6 @@ COM_PORT = "COM3"   # Change to your Arduino port or pass --com
 WINDOW_SIZE = 256   # Must match feature extraction window
 NUM_FEATURES = 20
 COOLDOWN = 0.3  # seconds between motor triggers
-
-ser = serial.Serial("COM3", 9600, timeout=1)
-time.sleep(2)  # Arduino reset
-
-ser.write(b'1')  # Turn LED on
 
 
 def extract_features(signal, num_features=NUM_FEATURES):
@@ -89,7 +84,7 @@ def main(args=None):
         print(f"✅ Connected to Arduino on {parsed.com}. Listening for audio...")
         # iterator that yields stripped lines until an empty string sentinel
         line_source = iter(lambda: ser.readline().decode(errors="ignore").strip(), "")
-    
+
     last_trigger = 0
 
     try:
@@ -127,10 +122,9 @@ def main(args=None):
     except KeyboardInterrupt:
         print("\n🛑 Exiting...")
     finally:
-        if ser and ser.is_open:
+        if ser and getattr(ser, 'is_open', False):
             ser.close()
 
 
 if __name__ == "__main__":
     main()
-
