@@ -209,8 +209,10 @@ class Args:
             case _:
                 error(f"unknown sub-option {raw.command}")
         return Args(source,output,command)
+    def open_source(self) -> Iterator[DataEntry]:
+        pass # TODO
 
-def load_command_line(args: list[str]) -> Args:
+def parse_command_line() -> Args:
     def source_parser(source: str) -> Source:
         stream = iter(source.split(":"))
         first = next(stream, None)
@@ -411,7 +413,7 @@ def record(path: str, data: Iterator[DataEntry], seconds: int) -> None:
         writer.writerow([TIME_LABEL, MIC_VALUE_LABEL, QUANTITY_LABEL])
         print(f"recording for {seconds} seconds")
         for entry in data:
-            writer.writerow([entry.time, entry.microphone, entry.quantity])
+            writer.writerow([ entry.time, entry.microphone, entry.quantity])
         success(f"finished recording to {path}")
 
 
@@ -424,12 +426,20 @@ def record_serial(path: str, com_port: str, seconds: int) -> None:
 
 
 def main():
-    args: Args = load_command_line(args)
-    interpretor = initialize_model(args.model)
-    if isinstance(args.test, str):
-        pass
-    else:
-        pass
+    args: Args = parse_command_line()
+    match args.command:
+        case command if isinstance(command,Run):
+            # open source Iterator[DataEntry]
+            # pass to training function
+            # finish
+            pass
+        case command if isinstance(command,Record):
+            # match args.source:
+            # open source Iterator[DataEntry]
+            # pass to recorder function
+            # finish
+    # interpretor = initialize_model(args.model)
+
 
 
 if __name__ == "__main__":
