@@ -1,15 +1,23 @@
+#!/usr/bin/env python
 import argparse
+import csv
 import os
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from enum import Enum, auto
+from sys import argv
+from time import time
+from typing import TYPE_CHECKING, NoReturn, cast
 
 import colored
 import numpy as np
 import pandas
 import scipy
-from numpy.typing import ArrayLike, NDArray
+import serial
+from numpy.fft import rfft
+from numpy.typing import NDArray
 from pandas.api.extensions import ExtensionArray
+from serial import Serial
 
 # from numpy.typing import ExtensionArray
 
@@ -20,40 +28,53 @@ if TYPE_CHECKING:
 # inputs
 # training_data_directory = "model_input_data"
 # defaults
+BAUDRATE = 9600  # speed of communication over connection in baud
 WINDOW_SIZE = 256
 FEATURE_COUNT: int = 20
 REPO_URL = "https://github.com/antiah-arch/EchoSafe"
 COM_PORT: str = "COM3"
+QUANTITY = 0
+ERROR_RETURN = 2
+TIME_LABEL = "time"
+MIC_VALUE_LABEL = "mic_value"
+QUANTITY_LABEL = "label"
 
 
-def extract_features(data: pandas.DataFrame) -> np.ndarray:
-    signal: ExtensionArray | NDArray = data["mic_value"].values
-    window_size = 256
-    features: list = []  # x
-    labels: list[str] = []  # y
-    # loops through a range with a step of window_size (256) 0,256,512.. and create a new slice of strings
-    for i in range(0, len(signal) - window_size, window_size):
-        frame: list[str] = signal[i : i + window_size]
-        fft_vals = np.abs(scipy.fft.rfft(frame))
-        features.append(np.mean(fft_vals))
-    features_slice = features[:FEATURE_COUNT]
-    if len(features_slice) < FEATURE_COUNT:
-        features_slice += [0] * (
-            FEATURE_COUNT - len(features_slice)
-        )  # this can probably be rewritten its gross
-    return np.array(features_slice)
+def error(msg: str) -> NoReturn:
+    print(colored.stylize(msg, colored.fore("red")))
+    exit(ERROR_RETURN)
 
 
-def load_data():
-    features = []
-    labels = []
-    data: list[str] = os.listdir("model_input_data")
-    for data_file in data:
-        # assert os.path.exists(data_file)
-        csv_data: pandas.DataFrame = pandas.read_csv(data_file)
-        # label = int(csv_data["label"].iloc[0])
-        features.append(extract_features(csv_data))
-        labels.append(int(csv_data["label"].iloc[0]))
+def warning(msg: str) -> None:
+    print(colored.stylize(msg, colored.fore("yellow")))
+
+
+def success(msg: str) -> None:
+    print(colored.stylize(msg, colored.fore("green")))
+
+
+def subtext(msg: str) -> None:
+    print(colored.stylize(msg, colored.fore("dark_gray")))
+
+
+def extract_features(signal: list[int], feature_count: int) -> NDArray:
+    fft_vals = np.abs(rfft(signal))
+    features = np.array(
+        [np.mean(fft_vals[i::feature_count]) for i in range(feature_count)]
+    )
+    return np.array([features], dtype=np.float32)
+
+
+# def load_data():
+#     features = []
+#     labels = []
+#     data: list[str] = os.listdir("model_input_data")
+#     for data_file in data:
+#         # assert os.path.exists(data_file)
+#         csv_data: pandas.DataFrame = pandas.read_csv(data_file)
+#         # label = int(csv_data["label"].iloc[0])
+#         features.append(extract_features(csv_data))
+#         labels.append(int(csv_data["label"].iloc[0]))
 
 
 def initialize_model(model: str) -> "tf.lite.Interpreter":
@@ -79,25 +100,138 @@ class Config:
 # /Config
 
 
+# Source ADT
+@dataclass(frozen=True)
+class SerialSource:
+    port: str
+
+
+@dataclass(frozen=True)
+class MicrophoneSource:
+    default: bool = False
+    index: int | None = None
+    substring: str | None = None
+
+
+@dataclass(frozen=True)
+class FileSource:
+    path: str
+
+
+Source = SerialSource | MicrophoneSource | FileSource
+
+
 def load_command_line(args: list[str]) -> Config:
+    def source_parser(source: str) -> Source:
+        stream = iter(source.split(":"))
+        first = next(stream, None)
+        match first:
+            case None:
+                error("empty source")
+            case "serial":
+                port = next(stream, None)
+                match port:
+                    case None:
+                        error("serial: requires a COMPORT, eg. --source serial:COM0")
+                    case _:
+                        return SerialSource(port)
+            case "file":
+                path = next(stream, None)
+                match path:
+                    case None:
+                        error("file: requires a PATH, eg. --source file:./data.csv")
+                    case _:
+                        return FileSource(path)
+            case "microphone":
+                submethod = next(stream, None)
+                match submethod:
+                    case None:
+                        error(
+                            "microphone: requires a submethod eg. --source microphone:default"
+                        )
+                    case "default":
+                        return MicrophoneSource(default=True)
+                    case "index":
+                        i = next(stream, None)
+                        match i:
+                            case None:
+                                error(
+                                    "microphone:index requires a number, eg. --source microphone:index:0"
+                                )
+                            case _:
+                                if not i.isdigit():
+                                    error(
+                                        f'{i} is not a digit in "microphone:index:{i}"'
+                                    )
+                                return MicrophoneSource(index=int(i))
+                    case "name":
+                        name = next(stream, None)
+                        match name:
+                            case None:
+                                error(
+                                    "microphone:index requires a name which may be a substring of the full system name, eg. --source microphone:name:built-in"
+                                )
+                            case _:
+                                return MicrophoneSource(substring=name)
+                    case _:
+                        error(f"Unknown method {submethod}")
+            case _:
+                error(f"Unknown method {first}")
+
     parser = argparse.ArgumentParser(
         prog="echosafe",
         description="Arduino to TensorFlowLite Interface bridge",  # whatever that means
         epilog=f"for more information see {REPO_URL}",
     )
-    parser.add_argument("-c", "--com", default=COM_PORT)
-    parser.add_argument("-v", "--verbose", action="store_true")
-    parser.add_argument(
-        "-m", "--model", default="./sound_model.tflite", help="Path to TFLite model"
+    # parser.add_argument("-c", "--com", default=COM_PORT)
+    # parser.add_argument("-v", "--verbose", action="store_true")
+    # parser.add_argument(
+    #     "-m", "--model", default="./model/sound_model.tflite", help="Path to TFLite model"
+    # )
+    # parser.add_argument("-s", "--window-size", type=int, default=WINDOW_SIZE)
+    # parser.add_argument("-f", "--feature-count", type=int, default=FEATURE_COUNT)
+    # parser.add_argument(
+    #     "-t",
+    #     "--test",
+    #     help="run in test mode using a simulated data stream CSV file.",
+    # )
+
+    # subparsers = parser.add_subparsers()
+    # record = subparsers.add_parser('record')
+    # record.add_argument("-s","--serial",help="use a serial COM port as record source")
+    # record.add_argument("-m","--microphone",help="use a system microphone as record source")
+    # record.add_argument("-v")
+
+    shared = argparse.ArgumentParser(add_help=False)
+    shared.add_argument("-v", "--verbose", action="store_true")
+    shared.add_argument(
+        "-s",
+        "--source",
+        help="choose source of sound data, either serial:COMPORT, microphone:[default | index:N | name:STR] | file:PATH",
+        metavar="SOURCE",
     )
-    parser.add_argument("-s", "--window-size", type=int, default=WINDOW_SIZE)
-    parser.add_argument("-f", "--feature-count", type=int, default=FEATURE_COUNT)
-    parser.add_argument(
-        "-t",
-        "--test",
-        help="run in test mode using a simulated data stream CSV file.",
+
+    parser = argparse.ArgumentParser(parents=[shared])
+    subparsers = parser.add_subparsers()
+    record = subparsers.add_parser("record")
+    record.add_argument(
+        "-t", "--time", metavar="SECONDS", help="time in seconds to record"
     )
+    record.add_argument("-o", "--output", metavar="FILE", help="file to write data to")
+
+    run = subparsers.add_parser("run")
+    run.add_argument("-f", type=int, default=FEATURE_COUNT)
+    run.add_argument("-w", "--window-size", type=int, default=WINDOW_SIZE)
+    run.add_argument(
+        "-o",
+        "--output",
+        default="./models/sound_model.tflite",
+        metavar="FILE",
+        help="file path to write model",
+    )
+
     parsed = parser.parse_args(args=args)
+    parser.print_help()
     return Config(
         window_size=parsed.window_size,
         feature_count=parsed.feature_count,
@@ -108,54 +242,127 @@ def load_command_line(args: list[str]) -> Config:
     )
 
 
-def error(msg: str) -> None:
-    print(colored.stylize(msg, colored.fore("red")))
+@dataclass
+class DataEntry:
+    time: float
+    microphone: int
+    quantity: int
+
+    @staticmethod
+    def from_csv_entry(s: str) -> "DataEntry|None":
+        parsed = s.strip().split(",")[:3]
+        raw_time, raw_microphone, raw_quantity = parsed
+        # if any arent digits
+        if any(map(lambda a: not a.isdigit(), parsed)):
+            warning(f"could not parse mangled CSV entry {parsed} non-digit present.")
+            return None
+        else:
+            time = float(raw_time)
+            microphone = int(raw_microphone)
+            quantity = int(raw_quantity)
+            return DataEntry(time, microphone, quantity)
+
+    def to_csv_entry(self) -> str:
+        return f"{self.time},{self.microphone},{self.quantity}"
+
+    @staticmethod
+    def from_mic_iterable(microphone_values: Iterable[int]) -> "Iterator[DataEntry]":
+        start = time()
+        return map(
+            lambda mic: DataEntry(time() - start, int(mic), QUANTITY), microphone_values
+        )
+        # filter(lambda mic: not mic.isdigit(), microphone_values),
+
+    # @staticmethod
+    # def from_iterable(xs: Iterable) -> "Iterator[DataEntry]":
+    #     return cast(  # needed because pyright is unaware of the type narrowing in the filter
+    #         Iterator[DataEntry],
+    #         filter(
+    #             lambda x: isinstance(x, DataEntry),
+    #             map(lambda entry: DataEntry.from_csv_entry(entry), xs),
+    #         ),
+    #     )
+
+    # @staticmethod
 
 
-def warning(msg: str) -> None:
-    print(colored.stylize(msg, colored.fore("yellow")))
-
-
-def success(msg: str) -> None:
-    print(colored.stylize(msg, colored.fore("green")))
-
-
-def subtext(msg: str) -> None:
-    print(colored.stylize(msg, colored.fore("dark_gray")))
-
-
-# /load_command_line
 # returns an iterator over the serial connection
-def open_serial(config: Config) -> Iterator[str]:
-    # setup arduino connection
-    import serial
+#
 
-    DATA_COMM_SPEED = 9600  # speed of communication over connection in baud
-    serial_connection = serial.Serial(
-        config.com_port, DATA_COMM_SPEED, timeout=1
-    )  # what is 9600
-    print(f"connected to device on port {config.com_port}")
-    return iter(
+
+def initiate_serial_connection(com_port: str) -> Serial:
+    serial_connection = Serial(com_port, BAUDRATE, timeout=1)
+    success(f"connected to device on port {com_port}")
+    return serial_connection
+
+
+def open_serial_data(serial_connection: serial.Serial) -> Iterator[DataEntry]:
+    microphone_values: Iterator[str] = iter(
         lambda: serial_connection.readline().decode(errors="ignore").strip(), ""
+    )
+    return DataEntry.from_mic_iterable(
+        map(
+            lambda mic: int(mic),
+            filter(lambda mic: not mic.isdigit(), microphone_values),
+        )
     )
 
 
-ERROR_RETURN = 2
+def open_simulated_data(path: str) -> Iterator[DataEntry]:
+    # assert isinstance(config.test, str)
+    if not os.path.exists(path):
+        error(f"test data file {path} not found.")
+    else:
+        with open(path, "r", encoding="utf-8", errors="ignore") as csv_lines:
+            return cast(  # needed because pyright is unaware of the type narrowing in the filter
+                Iterator[DataEntry],
+                filter(
+                    lambda x: isinstance(x, DataEntry),
+                    map(lambda entry: DataEntry.from_csv_entry(entry), csv_lines),
+                ),
+            )
+            # return DataEntry.from_iterable(csv_lines)
 
-
-def open_simulated_data(config: Config) -> Iterator[str]:
-    assert isinstance(config.test, str)
-    if not os.path.exists(config.test):
-        error(f"test data file {config.test} not found.")
-        exit(ERROR_RETURN)
-
+            # map(lambda entry:,f )
+            # for line in f:
+            #     token = line.strip().split(",")[0]
+            #     if token.isdigit():
+            #         yield token
+            #     else:
+            #         continue
+            #     # val = int(token) if token.isdigit() else None
+            # if val is not None:
+            #     yield str(val)
         # raise SystemExit(f"simulated data file {config.test} not found.")
+
+
+def record(path: str, data: Iterator[DataEntry], seconds: int) -> None:
+    with open(path, "w") as csv_file:
+        writer = csv.writer(csv_file)
+        writer.writerow([TIME_LABEL, MIC_VALUE_LABEL, QUANTITY_LABEL])
+        print(f"recording for {seconds} seconds")
+        for entry in data:
+            writer.writerow([entry.time, entry.microphone, entry.quantity])
+        success(f"finished recording to {path}")
+
+
+def record_serial(path: str, com_port: str, seconds: int) -> None:
+    with initiate_serial_connection(com_port) as serial_connection:
+        record(path, open_serial_data(serial_connection), seconds)
+
+
+# def detect_claps():
 
 
 def main(args: list[str]):
     config: Config = load_command_line(args)
-    interpreter = initialize_model(config.model)
+    interpretor = initialize_model(config.model)
     if isinstance(config.test, str):
         pass
     else:
         pass
+
+
+if __name__ == "__main__":
+    print(argv)
+    main(argv)
