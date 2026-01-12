@@ -1,4 +1,4 @@
-import os
+﻿import os
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from io import TextIOWrapper
@@ -6,7 +6,7 @@ from time import time
 from typing import cast
 
 from serial import Serial
-from utils import error, success, warning
+from py.utils import error, success, warning
 
 BAUDRATE = 9600  # speed of communication over connection in baud
 QUANTITY: int = 0

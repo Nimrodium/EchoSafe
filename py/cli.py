@@ -1,22 +1,29 @@
-from _typeshed import ReadableBuffer
-import argparse
+﻿import argparse
 from argparse import Namespace
 from collections.abc import Iterator
 from dataclasses import dataclass
 import os
 import sys
 from typing import cast
-from utils import Writeable, WriteableAndCloseable, error
 from serial import Serial
-from py.cli import Args, Record, Run, parse_command_line
-from py.recording import record
-from py.trainer import initialize_model, train
-from py.source import Source, SerialSource, FileSource, MicrophoneSource, DataStream, open_serial_data, open_file_data
-from serial_helper import open_serial, close_serial, initiate_serial_connection
+from py.source import (
+    DataEntry,
+    DataStream,
+    FileSource,
+    MicrophoneSource,
+    SerialSource,
+    Source,
+    initiate_serial_connection,
+    open_file_data,
+    open_serial_data,
+)
+from py.utils import Writeable, WriteableAndCloseable, error
+
 
 WINDOW_SIZE = 256
 FEATURE_COUNT: int = 20
 REPO_URL = "https://github.com/antiah-arch/EchoSafe"
+
 
 
 
@@ -135,22 +142,29 @@ class Args:
             case _:
                 error("invalid output")
 
-
-    def open_source(self) -> DataStream: # type: ignore
+    def open_source(self) -> DataStream:  # type: ignore
         match self.source:
-            case x if isinstance(x, SerialSource)
-                serial_connection = initiate_serial_connection(cast(SerialSource,self.source).port)
+            case x if isinstance(x, SerialSource):
+                serial_connection = initiate_serial_connection(
+                    cast(SerialSource, self.source).port
+                )
                 iterator = open_serial_data(serial_connection)
-                return DataStream(iterator,serial_connection)
+                return DataStream(iterator, serial_connection)
+
             case x if isinstance(x, FileSource):
-                path = cast(FileSource,self.source).path
-                if os.path.exists(path):
+                path = cast(FileSource, self.source).path
+                if not os.path.exists(path):
                     error(f"file {path} does not exist")
-                file = open(path,"r", encoding="utf-8", errors="ignore")
+                file = open(path, "r", encoding="utf-8", errors="ignore")
                 iterator = open_file_data(file)
-                return DataStream(iterator,file)
+                return DataStream(iterator, file)
+
             case x if isinstance(x, MicrophoneSource):
-                error("microphone is not implemented") # TODO
+                error("microphone is not implemented")
+
+            case _:
+                error("unknown source type")
+ # TODO
         # pass  # TODO
 
 # @dataclass
@@ -160,6 +174,7 @@ class Args:
 #         return self.inner.write(data)
 #     def close(self) -> None:
 #         if isinstance(self.inner,):
+
 
 
 

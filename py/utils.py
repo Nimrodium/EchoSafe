@@ -1,5 +1,4 @@
 import sys
-from collections.abc import Buffer
 from typing import NoReturn, Protocol
 
 import colored
