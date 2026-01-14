@@ -30,3 +30,7 @@ def main():
     if can_close_output:
         output.close()
     # interpretor = initialize_model(args.model)
+
+
+if __name__ == "__main__":
+    main()

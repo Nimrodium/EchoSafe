@@ -1,13 +1,16 @@
 import argparse
+import os
+import sys
 from argparse import Namespace
 from collections.abc import Iterator
 from dataclasses import dataclass
-import os
-import sys
-from typing import cast
-from serial import Serial
-from py.source import (
-    DataEntry,
+from typing import TYPE_CHECKING, cast
+
+# if TYPE_CHECKING:
+# from _typeshed import ReadableBuffer
+# from serial import Serial
+from source import (
+    # DataEntry,
     DataStream,
     FileSource,
     MicrophoneSource,
@@ -25,8 +28,6 @@ FEATURE_COUNT: int = 20
 REPO_URL = "https://github.com/antiah-arch/EchoSafe"
 
 
-
-
 @dataclass(frozen=True)
 class Record:
     seconds: int
@@ -40,14 +41,17 @@ class Run:
 
 Command = Run | Record
 
-def parse_serial_path(stream:Iterator[str]) -> SerialSource:
+
+def parse_serial_path(stream: Iterator[str]) -> SerialSource:
     port = next(stream, None)
     match port:
         case None:
             error("serial: requires a COMPORT, eg. serial:COM0")
         case _:
             return SerialSource(port)
-def parse_file_path(stream:Iterator[str]) -> FileSource:
+
+
+def parse_file_path(stream: Iterator[str]) -> FileSource:
     path = next(stream, None)
     match path:
         case None:
@@ -55,13 +59,15 @@ def parse_file_path(stream:Iterator[str]) -> FileSource:
         case _:
             return FileSource(path)
 
+
 @dataclass(frozen=True)
 class Args:
     source: Source
     output: str
-    verbose:bool
+    verbose: bool
     command: Command
-    model:str
+    model: str
+
     @staticmethod
     def source_parser(source: str) -> Source:
         stream = iter(source.split(":"))
@@ -112,10 +118,10 @@ class Args:
     @staticmethod
     def from_parsed_args(raw: Namespace) -> "Args":
         print(raw)
-        source : Source = Args.source_parser(raw.source)
-        output : str = raw.output
-        verbose : bool = raw.verbose
-        model : str = raw.model
+        source: Source = Args.source_parser(raw.source)
+        output: str = raw.output
+        verbose: bool = raw.verbose
+        model: str = raw.model
         command: Command
         match raw.command:
             case "run":
@@ -125,6 +131,7 @@ class Args:
             case _:
                 error(f"unknown sub-option {raw.command}")
         return Args(source, output, verbose, command, model)
+
     # second value tells it if it SHOULD be closed. stdout should not be.
     # could wrap in another ADT but simple generics should be sufficent here.
     def open_output(self) -> tuple[WriteableAndCloseable, bool]:
@@ -167,6 +174,7 @@ class Args:
  # TODO
         # pass  # TODO
 
+
 # @dataclass
 # class Output:
 #     inner:Writeable|WriteableAndCloseable
@@ -174,9 +182,6 @@ class Args:
 #         return self.inner.write(data)
 #     def close(self) -> None:
 #         if isinstance(self.inner,):
-
-
-
 
 
 def parse_command_line() -> Args:
@@ -219,10 +224,12 @@ def parse_command_line() -> Args:
         metavar="MODEL_PATH",
         help="tflite model file to use",
     )
-    run.add_argument("-o","--output",
+    run.add_argument(
+        "-o",
+        "--output",
         default="stdout",
         metavar="OUTPUT",
-        help="where to output data, can be stdout | serial:COMPORT | file:PATH"
+        help="where to output data, can be stdout | serial:COMPORT | file:PATH",
     )
 
     parsed = parser.parse_args()
