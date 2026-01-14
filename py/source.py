@@ -6,7 +6,7 @@ from time import time
 from typing import cast
 
 from serial import Serial
-from py.utils import error, success, warning
+from utils import error, success, warning
 
 BAUDRATE = 9600  # speed of communication over connection in baud
 QUANTITY: int = 0

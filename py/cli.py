@@ -20,7 +20,7 @@ from source import (
     open_file_data,
     open_serial_data,
 )
-from py.utils import Writeable, WriteableAndCloseable, error
+from utils import Writeable, WriteableAndCloseable, error
 
 
 WINDOW_SIZE = 256
@@ -117,7 +117,6 @@ class Args:
 
     @staticmethod
     def from_parsed_args(raw: Namespace) -> "Args":
-        print(raw)
         source: Source = Args.source_parser(raw.source)
         output: str = raw.output
         verbose: bool = raw.verbose
@@ -129,7 +128,7 @@ class Args:
             case "record":
                 command = Record(raw.seconds)
             case _:
-                error(f"unknown sub-option {raw.command}")
+                error(f"unknown sub-command {raw.command}")
         return Args(source, output, verbose, command, model)
 
     # second value tells it if it SHOULD be closed. stdout should not be.
@@ -201,7 +200,7 @@ def parse_command_line() -> Args:
         description="Arduino to TensorFlowLite Interface bridge",  # whatever that means
         epilog=f"for more information see {REPO_URL}",
     )
-    subparsers = parser.add_subparsers(dest="command")
+    subparsers = parser.add_subparsers(dest="command",required=True)
     record = subparsers.add_parser("record", parents=[shared])
     record.add_argument(
         "-t", "--time", metavar="SECONDS", help="time in seconds to record"
