@@ -78,7 +78,7 @@ def source_parser(source: str) -> Source:
                             return MicrophoneSource(index=int(i))
                 case "name":
                     name = next(stream, None)
-                    match name:
+                    match name:  # print("are we type checking?")name:
                         case None:
                             error(
                                 "microphone:index requires a name which may be a substring of the full system name, eg. --source microphone:name:built-in"
